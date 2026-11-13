@@ -1,0 +1,343 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "4074b20f",
+   "metadata": {},
+   "source": [
+    "# Limpeza de Dados de Vendas\n",
+    "\n",
+    "Ficheiro: `dados_sujos_limpeza.csv`\n",
+    "\n",
+    "> Nota: `read.csv()` e `is.na()` são funções do R. Em Python (pandas) usamos `pd.read_csv()` e `.isna()`."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "767f062c",
+   "metadata": {},
+   "source": [
+    "## 0. Carregar o ficheiro para o Colab\n",
+    "Execute a célula e escolha o ficheiro `dados_sujos_limpeza.csv` no seu computador."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "a3a8a92d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import re\n",
+    "import pandas as pd\n",
+    "\n",
+    "try:\n",
+    "    from google.colab import files\n",
+    "    enviado = files.upload()\n",
+    "    ENTRADA = list(enviado.keys())[0]\n",
+    "except ImportError:\n",
+    "    ENTRADA = \"dados_sujos_limpeza.csv\"   # fora do Colab\n",
+    "print(\"Ficheiro:\", ENTRADA)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "79466d0e",
+   "metadata": {},
+   "source": [
+    "## 1. Importar o ficheiro"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "abd25302",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df = pd.read_csv(ENTRADA, encoding=\"utf-8\")\n",
+    "print(\"Dimensão original:\", df.shape)\n",
+    "df.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5a91f73c",
+   "metadata": {},
+   "source": [
+    "## 2. Identificar valores ausentes\n",
+    "Strings vazias ou só com espaços também contam como ausentes."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ab2fd0ac",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df = df.replace(r\"^\\s*$\", pd.NA, regex=True)\n",
+    "df.isna().sum()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "42b29115",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Linhas com pelo menos um valor ausente\n",
+    "df[df.isna().any(axis=1)]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "bd6e7145",
+   "metadata": {},
+   "source": [
+    "## 3. Eliminar registos duplicados"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5ab73061",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"Duplicados encontrados:\", df.duplicated().sum())\n",
+    "display(df[df.duplicated(keep=False)].sort_values(\"id_venda\"))\n",
+    "\n",
+    "df = df.drop_duplicates()\n",
+    "df = df.drop_duplicates(subset=\"id_venda\", keep=\"first\")  # id deve ser único\n",
+    "print(\"Dimensão após remover duplicados:\", df.shape)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "57fda63e",
+   "metadata": {},
+   "source": [
+    "## 4. Corrigir espaços e maiúsculas/minúsculas"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ed5c05f2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"ANTES:\")\n",
+    "for col in [\"cidade\", \"produto\", \"metodo_pagamento\"]:\n",
+    "    print(f\"  {col}: {df[col].dropna().unique().tolist()}\")\n",
+    "\n",
+    "for col in [\"nome_cliente\", \"cidade\", \"produto\", \"email\", \"metodo_pagamento\"]:\n",
+    "    df[col] = df[col].astype(\"string\").str.strip()\n",
+    "\n",
+    "df[\"nome_cliente\"] = df[\"nome_cliente\"].str.title()\n",
+    "df[\"cidade\"] = df[\"cidade\"].str.title()          # MATOLA -> Matola\n",
+    "df[\"produto\"] = df[\"produto\"].str.capitalize()   # \" computador \" -> Computador\n",
+    "df[\"email\"] = df[\"email\"].str.lower()\n",
+    "\n",
+    "mapa_pag = {\"m-pesa\": \"M-Pesa\", \"e-mola\": \"e-Mola\", \"cartão\": \"Cartão\", \"dinheiro\": \"Dinheiro\"}\n",
+    "df[\"metodo_pagamento\"] = df[\"metodo_pagamento\"].str.lower().map(mapa_pag)\n",
+    "\n",
+    "print(\"\\nDEPOIS:\")\n",
+    "for col in [\"cidade\", \"produto\", \"metodo_pagamento\"]:\n",
+    "    print(f\"  {col}: {sorted(df[col].dropna().unique())}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "e29ce0bf",
+   "metadata": {},
+   "source": [
+    "## 5. Corrigir tipos de dados\n",
+    "(Feito antes dos outliers: precisamos de números para calcular estatísticas.)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "19123a23",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"Tipos antes:\\n\", df.dtypes, \"\\n\")\n",
+    "\n",
+    "# Preço com vírgula decimal: \"36519,66\" -> 36519.66\n",
+    "df[\"preco_unitario_MZN\"] = pd.to_numeric(\n",
+    "    df[\"preco_unitario_MZN\"].astype(\"string\").str.replace(\",\", \".\", regex=False), errors=\"coerce\")\n",
+    "for col in [\"idade\", \"quantidade\", \"satisfacao\"]:\n",
+    "    df[col] = pd.to_numeric(df[col], errors=\"coerce\")\n",
+    "df[\"id_venda\"] = df[\"id_venda\"].astype(int)\n",
+    "\n",
+    "# Datas: AAAA-MM-DD, alternativa DD-MM-AAAA; inválidas -> NaT\n",
+    "datas = pd.to_datetime(df[\"data_venda\"], format=\"%Y-%m-%d\", errors=\"coerce\")\n",
+    "datas = datas.fillna(pd.to_datetime(df[\"data_venda\"], format=\"%d-%m-%Y\", errors=\"coerce\"))\n",
+    "print(\"Datas inválidas:\", df.loc[datas.isna() & df[\"data_venda\"].notna(), \"data_venda\"].tolist())\n",
+    "df[\"data_venda\"] = datas"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "1efc00e6",
+   "metadata": {},
+   "source": [
+    "## 6. Identificar e tratar outliers"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5c79513f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df[[\"idade\", \"quantidade\", \"preco_unitario_MZN\", \"satisfacao\"]].describe()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "b5f53d2a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import matplotlib.pyplot as plt\n",
+    "fig, ax = plt.subplots(1, 4, figsize=(14, 3))\n",
+    "for a, col in zip(ax, [\"idade\", \"quantidade\", \"preco_unitario_MZN\", \"satisfacao\"]):\n",
+    "    a.boxplot(df[col].dropna()); a.set_title(col)\n",
+    "plt.tight_layout(); plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "3c87177f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Regras de negócio\n",
+    "m = ~df[\"idade\"].between(18, 100) & df[\"idade\"].notna()\n",
+    "print(\"Idade fora de [18,100]:\", df.loc[m, \"idade\"].tolist()); df.loc[m, \"idade\"] = pd.NA\n",
+    "\n",
+    "m = df[\"quantidade\"] <= 0\n",
+    "print(\"Quantidade <= 0:\", df.loc[m, \"quantidade\"].tolist()); df.loc[m, \"quantidade\"] = pd.NA\n",
+    "\n",
+    "m = ~df[\"satisfacao\"].between(1, 5) & df[\"satisfacao\"].notna()\n",
+    "print(\"Satisfação fora de [1,5]:\", df.loc[m, \"satisfacao\"].tolist()); df.loc[m, \"satisfacao\"] = pd.NA\n",
+    "\n",
+    "# Preço: método IQR\n",
+    "q1, q3 = df[\"preco_unitario_MZN\"].quantile([0.25, 0.75])\n",
+    "iqr = q3 - q1\n",
+    "lim_inf, lim_sup = q1 - 1.5 * iqr, q3 + 1.5 * iqr\n",
+    "m = ~df[\"preco_unitario_MZN\"].between(lim_inf, lim_sup) & df[\"preco_unitario_MZN\"].notna()\n",
+    "print(f\"Preço fora de [{lim_inf:.2f}, {lim_sup:.2f}]:\", df.loc[m, \"preco_unitario_MZN\"].tolist())\n",
+    "df.loc[m, \"preco_unitario_MZN\"] = pd.NA"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "651f07cf",
+   "metadata": {},
+   "source": [
+    "### Imputação dos valores em falta (mediana)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "71f53927",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df[\"preco_unitario_MZN\"] = df[\"preco_unitario_MZN\"].fillna(\n",
+    "    df.groupby(\"produto\")[\"preco_unitario_MZN\"].transform(\"median\")).round(2)\n",
+    "for col in [\"idade\", \"quantidade\", \"satisfacao\"]:\n",
+    "    df[col] = df[col].fillna(df[col].median())\n",
+    "df[\"cidade\"] = df[\"cidade\"].fillna(\"Desconhecida\")\n",
+    "\n",
+    "for col in [\"idade\", \"quantidade\", \"satisfacao\"]:\n",
+    "    df[col] = df[col].astype(int)\n",
+    "df.dtypes"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f070a834",
+   "metadata": {},
+   "source": [
+    "## 7. Validar emails"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "0baa0a7f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "padrao = re.compile(r\"^[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+$\")   # \\w aceita acentos\n",
+    "df[\"email_valido\"] = df[\"email\"].apply(lambda e: bool(padrao.match(e)) if pd.notna(e) else False)\n",
+    "\n",
+    "print(\"Emails inválidos:\", df.loc[~df[\"email_valido\"] & df[\"email\"].notna(), \"email\"].tolist())\n",
+    "print(\"Emails em falta:\", df[\"email\"].isna().sum())\n",
+    "df.loc[~df[\"email_valido\"], \"email\"] = pd.NA"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c5162f34",
+   "metadata": {},
+   "source": [
+    "## 8. Criar novo CSV com os dados limpos"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "f830a093",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df[\"valor_total_MZN\"] = (df[\"quantidade\"] * df[\"preco_unitario_MZN\"]).round(2)\n",
+    "df = df.sort_values(\"id_venda\").reset_index(drop=True)\n",
+    "\n",
+    "SAIDA = \"dados_limpos.csv\"\n",
+    "df.to_csv(SAIDA, index=False, encoding=\"utf-8-sig\", date_format=\"%Y-%m-%d\")\n",
+    "print(\"Dimensão final:\", df.shape)\n",
+    "print(\"\\nAusentes restantes:\\n\", df.isna().sum())\n",
+    "df.head(10)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "6f0ee046",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Descarregar o ficheiro limpo (só no Colab)\n",
+    "try:\n",
+    "    from google.colab import files\n",
+    "    files.download(SAIDA)\n",
+    "except ImportError:\n",
+    "    print(\"Ficheiro gravado em\", SAIDA)"
+   ]
+  }
+ ],
+ "metadata": {
+  "colab": {
+   "provenance": []
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "name": "python3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
